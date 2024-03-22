@@ -179,11 +179,9 @@ get_daily_mean_test() ->
     M7 = pollution:add_value("Stacja 1", {{2023,3,28},{11,16,16}}, "PM10", 2000, M6),
     M8 = pollution:add_value("Stacja 2", {{2023,3,28},{11,16,17}}, "PM10", 3000, M7),
 
-    M9 = pollution:add_value("Stacja 3", {{2023,3,27},{11,16,18}}, "PM10", 1234, M8),
-
     ?assertMatch(15.0, pollution:get_daily_mean("PM10",{2023,3,27}, M2)),
     ?assertMatch(15.0, pollution:get_daily_mean("PM10",{2023,3,27}, M6)),
-    ?assertMatch(15.0, pollution:get_daily_mean("PM10",{2023,3,27}, M9)).
+    ?assertMatch(15.0, pollution:get_daily_mean("PM10",{2023,3,27}, M8)).
 
 
 
@@ -196,4 +194,26 @@ get_daily_mean_fail_test() ->
 
     ?assertMatch({error, _}, pollution:get_daily_mean("PM25",{2023,3,27}, M2)),
     ?assertMatch({error, _}, pollution:get_daily_mean("PM10",{2023,3,29}, M2)).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+get_correlation_test() ->
+    EPS = 0.0001,
+    M = pollution:add_station("Stacja 1", {1,1}, pollution:create_monitor()),
+    M1 = pollution:add_value("Stacja 1", {{2023,3,27},{11,16,10}}, "PM10", 10, M),
+    M2 = pollution:add_value("Stacja 1", {{2023,3,27},{11,16,11}}, "PM1", 20, M1),
+    M3 = pollution:add_value("Stacja 1", {{2023,3,27},{11,16,12}}, "PM10", 10, M2),
+    M4 = pollution:add_value("Stacja 1", {{2023,3,27},{11,16,13}}, "PM1", 20, M3),
+    M5 = pollution:add_value("Stacja 1", {{2023,3,27},{11,16,14}}, "PM10", 20, M2),
+    M6 = pollution:add_value("Stacja 1", {{2023,3,27},{11,16,15}}, "PM1", 10, M5),
+
+    ?assertMatch(+0.0, pollution:get_correlation("Stacja 1", "PM10", "PM10", M2)),
+    ?assertMatch(+0.0, pollution:get_correlation({1,1}, "PM10", "PM10", M4)),
+    ?assertMatch(+0.0, pollution:get_correlation("Stacja 1", "PM1", "PM1", M4)),
+    ?assertMatch(+0.0, pollution:get_correlation({1,1}, "PM1", "PM1", M4)),
+    ?assertMatch(+0.0, pollution:get_correlation("Stacja 1", "PM10", "PM1", M4)),
+    ?assert(EPS > abs(1 + pollution:get_correlation("Stacja 1", "PM10", "PM1", M6))).
+
+
+
+
 
