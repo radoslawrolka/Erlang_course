@@ -83,7 +83,7 @@ get_one_value(StationID, DateTime, Type, Monitor) ->
 get_one_value_from_station(Station, DateTime, Type) ->
   case maps:is_key({DateTime, Type}, Station#station.data) of
     false -> {error, "Measurement not found"};
-    true -> maps:get({DateTime, Type}, Station#station.data)
+    true -> (maps:get({DateTime, Type}, Station#station.data))#measurement.value
   end.
 
 %%--------------------------------------------------------------------
@@ -101,13 +101,18 @@ get_station_mean_from_station(Station, Type) ->
   end.
 
 %%--------------------------------------------------------------------
-get_daily_mean(DateTime, Type, Monitor) ->
-  Measurements = [maps:get({DateTime, Type}, S#station.data) || S <- maps:values(Monitor#monitor.stations_by_name), maps:is_key({DateTime, Type}, S#station.data)],
-  MeasurementsOfType = [M#measurement.value || M <- Measurements, M#measurement.type =:= Type],
-  case length(MeasurementsOfType) of
+get_daily_mean(Type, Date, Monitor) ->
+  Measurements = [M#measurement.value ||
+    Station <- maps:values(Monitor#monitor.stations_by_coords),
+    M <- maps:values(Station#station.data),
+    M#measurement.type == Type,
+    element(1, M#measurement.date_time) == Date],
+
+  case length(Measurements) of
     0 -> {error, "No measurements of this type"};
-    _ -> lists:sum(MeasurementsOfType) / length(MeasurementsOfType)
+    _ -> lists:sum(Measurements) / length(Measurements)
   end.
+
 
 %%%-------------------------------------------------------------------
 get_correlation(StationID, Type1, Type2, Monitor) ->
@@ -116,14 +121,28 @@ get_correlation(StationID, Type1, Type2, Monitor) ->
     {ok, Station} -> get_correlation_from_station(Station, Type1, Type2)
   end.
 get_correlation_from_station(Station, Type1, Type2) ->
-  Measurements1 = maps:values(Station#station.data),
-  MeasurementsOfType1 = [M#measurement.value || M <- Measurements1, M#measurement.type =:= Type1],
-  Measurements2 = maps:values(Station#station.data),
-  MeasurementsOfType2 = [M#measurement.value || M <- Measurements2, M#measurement.type =:= Type2],
-  case length(MeasurementsOfType1) of
-    0 -> {error, "No measurements of this type"};
-    _ -> lists:sum([X*Y || {X,Y} <- lists:zip(MeasurementsOfType1, MeasurementsOfType2)]) / length(MeasurementsOfType1)
+  Measurements = maps:values(Station#station.data),
+  MeasurementsOfType1 = [M#measurement.value || M <- Measurements, Type1 == M#measurement.type],
+  MeasurementsOfType2 = [M#measurement.value || M <- Measurements, Type2 == M#measurement.type],
+  case {length(MeasurementsOfType1), length(MeasurementsOfType2)} of
+    {0, _} -> {error, "No measurements of type 1"};
+    {_, 0} -> {error, "No measurements of type 2"};
+    _ ->
+      Mean1 = lists:sum(MeasurementsOfType1) / length(MeasurementsOfType1),
+      Mean2 = lists:sum(MeasurementsOfType2) / length(MeasurementsOfType2),
+      Diff1 = [X - Mean1 || X <- MeasurementsOfType1],
+      Diff2 = [X - Mean2 || X <- MeasurementsOfType2],
+      Diff1Diff2 = lists:zip(Diff1, Diff2),
+      Diff1Diff2Squared = [X1 * X2 || {X1, X2} <- Diff1Diff2],
+      Covariance = lists:sum(Diff1Diff2Squared),
+      StdDev1 = math:sqrt(lists:sum([X * X || X <- Diff1])),
+      StdDev2 = math:sqrt(lists:sum([X * X || X <- Diff2])),
+      case StdDev1 * StdDev2 of
+        +0.0 -> +0.0;
+        _ -> Covariance / (StdDev1 * StdDev2)
+      end
   end.
+
 
 
 % add_station utils
