@@ -1,0 +1,161 @@
+# Untitled notebook
+
+## Read Data
+
+```elixir
+defmodule Recorda do
+  defstruct dateTime: nil,
+            location: nil,
+            stationId: nil,
+            stationName: nil,
+            pollutionType: nil,
+            pollutionLevel: nil
+end
+
+defmodule App do
+  @path "./AirlyData-ALL-50k.csv"
+
+  def read_data() do
+    @path
+    |> File.read!()
+    |> String.split("\n", trim: true)
+    |> Enum.map(&process_line/1)
+  end
+
+  defp process_line(line) do
+    [dateTime, pollutionType, pollutionLevel, stationId, stationName, location] =
+      String.split(line, ";")
+
+    %Recorda{
+      dateTime: process_datetime(dateTime),
+      location: List.to_tuple(Enum.map(String.split(location, ","), &String.to_charlist/1)),
+      stationId: String.to_integer(stationId),
+      stationName: String.to_charlist(stationName),
+      pollutionType: String.to_charlist(pollutionType),
+      pollutionLevel: String.to_float(pollutionLevel)
+    }
+  end
+
+  defp process_datetime(datetime) do
+    [date_part, time_part] = String.split(datetime, "T")
+    [date_year, date_month, date_day] = String.split(date_part, "-")
+
+    [time_hour, time_minute, time_second] =
+      String.split(Enum.at(String.split(time_part, "."), 0), ":")
+
+    {{String.to_integer(date_year), String.to_integer(date_month), String.to_integer(date_day)},
+     {String.to_integer(time_hour), String.to_integer(time_minute),
+      String.to_integer(time_second)}}
+  end
+end
+
+list = App.read_data()
+# list
+[h | _T] = list
+h
+```
+
+## Divide data to get stations
+
+```elixir
+defmodule Station do
+  defstruct id: nil, name: nil, location: nil
+end
+
+defmodule Identify do
+  def identifyStations(list) do
+    unique_stations =
+      list
+      |> Enum.uniq_by(& &1.stationId)
+      |> Enum.map(&station_info/1)
+
+    unique_stations
+  end
+
+  defp station_info(data) do
+    %Station{id: data.stationId, name: data.stationName, location: data.location}
+  end
+end
+
+stations = Identify.identifyStations(list)
+stations
+```
+
+## Running Erlang App
+
+```elixir
+File.cwd()
+app_path = "./mylib/ebin/"
+Code.append_path(app_path)
+Application.stop(:mylib)
+Application.start(:mylib)
+```
+
+## Loading data to Server
+
+```elixir
+defmodule Loader do
+  def load_stations(list) do
+    for station <- list do
+      :pollution_gen_server.addStation(station.name, station.location)
+    end
+  end
+
+  def load_data(list) do
+    for record <- list do
+      :pollution_gen_server.addValue(
+        record.stationName,
+        record.dateTime,
+        record.pollutionType,
+        record.pollutionLevel
+      )
+    end
+  end
+
+  def load_data(list, type) do
+    for record <- list do
+      if record.pollutionType == type do
+        :pollution_gen_server.addValue(
+          record.stationName,
+          record.dateTime,
+          record.pollutionType,
+          record.pollutionLevel
+        )
+      end
+    end
+  end
+end
+```
+
+## Benchmark
+
+```elixir
+defmodule Benchmark do
+  def measure_time(func, arg) do
+    {time, result} = :timer.tc(fn -> apply(func, arg) end)
+    {time, result}
+  end
+end
+
+{time, result} = Benchmark.measure_time(&Loader.load_stations/1, [stations])
+IO.puts("Loading stations: #{time / 100_000} s")
+{time, result} = Benchmark.measure_time(&Loader.load_data/1, [list])
+IO.puts("Loading all data: #{time / 100_000} s")
+{time, result} = Benchmark.measure_time(&Loader.load_data/2, [list, ~c"PM10"])
+IO.puts("Loading PM10 data: #{time / 100_000} s")
+
+{time, {_, result}} =
+  Benchmark.measure_time(&:pollution_gen_server.getStationMean/2, [
+    ~c"Polska, Kraków, Studencka",
+    ~c"PM10"
+  ])
+
+IO.puts("Get mean time: #{time / 100_000} s, value: #{Float.to_string(result)}")
+
+{time, {_, result}} =
+  Benchmark.measure_time(&:pollution_gen_server.getDailyMean/2, [~c"PM25", {2024, 2, 10}])
+
+IO.puts("Get daily mean time: #{time / 100_000} s, value: #{result}")
+```
+
+---
